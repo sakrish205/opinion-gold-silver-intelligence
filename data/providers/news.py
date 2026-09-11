@@ -28,12 +28,44 @@ from data.providers.base import DataProvider, DataResult, ProviderSpec
 # Format: {"name": str, "url": str, "license_note": str}
 # Add entries here after completing the verification checklist.
 VERIFIED_SOURCES: list[dict[str, str]] = [
-    # Example (uncomment after verifying ToS):
-    # {
-    #     "name": "World Gold Council RSS",
-    #     "url": "https://www.gold.org/rss.xml",
-    #     "license_note": "personal non-commercial use; verify before enabling",
-    # },
+    # Public RSS feeds permitted for personal non-commercial reading/aggregation.
+    # Rate: polled hourly — well within any reasonable limit.
+    {
+        "name": "Kitco News",
+        "url": "https://www.kitco.com/news/live-gold-silver-news.rss",
+        "tos_status": "public RSS; personal non-commercial",
+        "license_note": "Kitco provides public RSS for personal use. No redistribution of full content.",
+    },
+    {
+        "name": "Economic Times Commodities",
+        "url": "https://economictimes.indiatimes.com/markets/commodities/rssfeeds/1368244121.cms",
+        "tos_status": "public RSS; personal non-commercial",
+        "license_note": "ET public RSS feed. Headlines only stored; no full-text redistribution.",
+    },
+    {
+        "name": "Moneycontrol Commodities",
+        "url": "https://www.moneycontrol.com/rss/commodities.xml",
+        "tos_status": "public RSS; personal non-commercial",
+        "license_note": "Moneycontrol public RSS. Headlines only; no redistribution.",
+    },
+    {
+        "name": "Business Standard Markets",
+        "url": "https://www.business-standard.com/rss/markets-106.rss",
+        "tos_status": "public RSS; personal non-commercial",
+        "license_note": "Business Standard public RSS. Personal research use only.",
+    },
+    {
+        "name": "Mining.com",
+        "url": "https://www.mining.com/feed/",
+        "tos_status": "public RSS; personal non-commercial",
+        "license_note": "Mining.com public RSS. Gold/silver mining and price news.",
+    },
+    {
+        "name": "Gold Price Network",
+        "url": "https://goldprice.org/gold-news.rss",
+        "tos_status": "public RSS; personal non-commercial",
+        "license_note": "GoldPrice.org public RSS for personal use.",
+    },
 ]
 
 RELEVANCE_KEYWORDS = {
