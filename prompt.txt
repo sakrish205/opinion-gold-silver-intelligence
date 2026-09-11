@@ -1,0 +1,37 @@
+<project_repository>
+
+GitHub repository:
+
+https://github.com/sakrish205/opinion-gold-silver-intelligence
+
+Repository owner:
+
+sakrish205
+
+Repository name:
+
+opinion-gold-silver-intelligence
+
+This repository is the canonical destination for the OPINION project.
+
+IMPORTANT:
+
+Do not assume the repository is empty.
+
+First inspect the repository and its complete current state.
+
+Determine:
+
+- existing files
+- existing code
+- existing README
+- existing branches
+- existing configuration
+- existing dependencies
+- existing dashboard code
+- existing documentation
+- existing Git history where relevant
+
+Do not delete or replace existing work without understanding it first.
+
+</project_repository>
