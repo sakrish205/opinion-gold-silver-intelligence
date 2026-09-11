@@ -1,4 +1,4 @@
-"""OPINION — Gold & Silver Intelligence Dashboard entry point."""
+"""OPINION — Gold & Silver Intelligence Dashboard."""
 import threading
 import webbrowser
 
@@ -13,118 +13,104 @@ init_db()
 app = Dash(
     __name__,
     use_pages=True,
-    external_stylesheets=[dbc.themes.DARKLY],
+    external_stylesheets=[dbc.themes.FLATLY],
     suppress_callback_exceptions=True,
     title="OPINION",
 )
 
-# ── Sidebar nav groups ────────────────────────────────────────────────────────
+# ── 8-page nav (grouped) ──────────────────────────────────────────────────────
 NAV_GROUPS = [
-    ("📊 Markets", [
-        ("Overview",              "/"),
-        ("Gold (XAU)",            "/gold"),
-        ("Silver (XAG)",          "/silver"),
-        ("International",         "/international"),
-        ("FX / INR",              "/fx-inr"),
-        ("Historical Prices",     "/historical"),
+    ("MARKETS", [
+        ("🏠 Overview",    "/"),
+        ("🥇 Metals",      "/metals"),
+        ("🌐 Markets",     "/markets"),
     ]),
-    ("🔮 Forecasting", [
-        ("Forecasts",             "/forecasts"),
-        ("Forecast vs Actual",    "/forecast-vs-actual"),
-        ("Verification Queue",    "/forecast-verification"),
-        ("Backtesting",           "/backtesting"),
+    ("FORECASTING", [
+        ("🔮 Forecasts",   "/forecasts"),
+        ("📊 Analytics",   "/analytics"),
     ]),
-    ("🧠 Intelligence", [
-        ("News Intelligence",     "/news"),
-        ("Decision History",      "/decisions"),
-        ("Currency Influence",    "/currency-influence"),
+    ("INTELLIGENCE", [
+        ("🧠 Intelligence", "/intelligence"),
     ]),
-    ("🤖 Models", [
-        ("Model Performance",     "/model-performance"),
-        ("Model Registry",        "/model-registry"),
-    ]),
-    ("⚙️ System", [
-        ("Data Sources",          "/data-sources"),
-        ("System Health",         "/system-health"),
-        ("Settings",              "/settings"),
+    ("MODELS & SYSTEM", [
+        ("🤖 Models",      "/models"),
+        ("⚙️ System",      "/system"),
     ]),
 ]
 
+_ACCENT = "#2C3E50"   # FLATLY's dark sidebar color
 
-def _nav_group(title, items):
+
+def _group(title, items):
     return html.Div([
-        html.Div(title, className="px-3 pt-3 pb-1",
-                 style={"fontSize": "0.68rem", "fontWeight": "700",
-                        "letterSpacing": "0.08em", "color": "#888", "textTransform": "uppercase"}),
-        *[dbc.NavLink(label, href=href, active="exact",
-                      className="py-1 px-3",
-                      style={"fontSize": "0.83rem", "borderRadius": "4px",
-                             "margin": "1px 6px"})
-          for label, href in items],
+        html.Div(title,
+                 style={"fontSize": "0.65rem", "fontWeight": "700", "letterSpacing": "0.1em",
+                        "color": "rgba(255,255,255,0.45)", "padding": "14px 16px 4px"}),
+        *[dbc.NavLink(
+            label, href=href, active="exact",
+            style={"color": "rgba(255,255,255,0.85)", "fontSize": "0.88rem",
+                   "padding": "7px 16px", "borderRadius": "6px", "margin": "1px 8px",
+                   "fontWeight": "500"},
+            class_name="opinion-nav-link",
+        ) for label, href in items],
     ])
 
 
 sidebar = html.Div(
     [
-        # ── Logo / header (sticky) ────────────────────────────────────────────
-        html.Div(
-            [
-                html.Div("OPINION", style={"fontSize": "1.1rem", "fontWeight": "800",
-                                            "color": "#FFC107", "letterSpacing": "0.05em"}),
-                html.Div("Gold & Silver Intelligence",
-                         style={"fontSize": "0.72rem", "color": "#888", "marginTop": "2px"}),
-                html.Hr(style={"borderColor": "#333", "margin": "12px 0 4px"}),
-            ],
-            className="px-3 pt-3",
-            style={"position": "sticky", "top": 0, "zIndex": 10,
-                   "background": "#1a1a2e"},
-        ),
-        # ── Scrollable nav ────────────────────────────────────────────────────
+        # Logo
+        html.Div([
+            html.Div("OPINION",
+                     style={"fontSize": "1.3rem", "fontWeight": "800",
+                            "color": "#F39C12", "letterSpacing": "0.06em"}),
+            html.Div("Gold & Silver Intelligence",
+                     style={"fontSize": "0.7rem", "color": "rgba(255,255,255,0.5)",
+                            "marginTop": "2px"}),
+            html.Hr(style={"borderColor": "rgba(255,255,255,0.15)", "margin": "14px 0 6px"}),
+        ], style={"padding": "20px 16px 0"}),
+        # Nav
         dbc.Nav(
-            [_nav_group(title, items) for title, items in NAV_GROUPS],
-            vertical=True,
-            pills=True,
-            className="flex-column pb-4",
+            [_group(t, items) for t, items in NAV_GROUPS],
+            vertical=True, pills=True, className="flex-column pb-4",
         ),
     ],
     style={
+        "background": _ACCENT,
         "height": "100vh",
-        "overflowY": "auto",
-        "overflowX": "hidden",
-        "background": "#1a1a2e",
         "position": "sticky",
         "top": 0,
-        # hide scrollbar on webkit while keeping scrollability
+        "overflowY": "auto",
+        "overflowX": "hidden",
         "scrollbarWidth": "thin",
-        "scrollbarColor": "#444 #1a1a2e",
+        "scrollbarColor": "rgba(255,255,255,0.2) transparent",
     },
 )
 
-app.layout = dbc.Container(
-    [
-        dbc.Row(
-            [
-                dbc.Col(sidebar, width=2, className="p-0"),
-                dbc.Col(
-                    [dcc.Location(id="url"), page_container],
-                    width=10,
-                    className="p-4",
-                    style={"minHeight": "100vh"},
-                ),
-            ],
-            className="g-0",
-        ),
-    ],
-    fluid=True,
-    className="p-0",
-)
+app.layout = html.Div([
+    # Global active-link styling (light indicator on dark sidebar)
+    html.Style("""
+        .opinion-nav-link.active {
+            background: rgba(255,255,255,0.15) !important;
+            color: #fff !important;
+            border-left: 3px solid #F39C12;
+        }
+        .opinion-nav-link:hover:not(.active) {
+            background: rgba(255,255,255,0.08) !important;
+            color: #fff !important;
+        }
+    """),
+    dbc.Row([
+        dbc.Col(sidebar, width=2, className="p-0"),
+        dbc.Col([
+            dcc.Location(id="url"),
+            page_container,
+        ], width=10, style={"padding": "28px 32px", "minHeight": "100vh",
+                            "background": "#f8f9fa"}),
+    ], className="g-0"),
+], style={"fontFamily": "system-ui, -apple-system, sans-serif"})
 
 server = app.server
 
 if __name__ == "__main__":
-    # Auto-open browser after a short delay so Dash is ready
-    def _open():
-        webbrowser.open("http://127.0.0.1:8050")
-    threading.Timer(1.5, _open).start()
-
+    threading.Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:8050")).start()
     app.run(debug=False, host="127.0.0.1", port=8050)
