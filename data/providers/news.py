@@ -114,6 +114,7 @@ class RSSNewsProvider(DataProvider):
                 lower = headline.lower()
                 relevant = any(kw in lower for kw in RELEVANCE_KEYWORDS)
                 items.append({
+                    "news_id": content_hash[:32],  # stable, unique per headline+source
                     "headline": headline,
                     "published_at": published,
                     "source_url": url,

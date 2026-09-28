@@ -1,4 +1,4 @@
-"""Models page — Model Performance and Model Registry in tabs."""
+"""Models — Performance and Registry."""
 import sqlite3
 import dash
 from dash import callback, dcc, html, Input, Output
@@ -12,58 +12,43 @@ dash.register_page(__name__, path="/models", name="Models")
 
 layout = html.Div([
     html.H4("Models", className="mb-3"),
-    dbc.Tabs([
-        dbc.Tab(label="📈 Performance", tab_id="perf"),
-        dbc.Tab(label="🗂 Registry", tab_id="registry"),
-    ], id="model-tabs", active_tab="perf", className="mb-3"),
     dcc.Interval(id="model-interval", interval=120_000, n_intervals=0),
-    html.Div(id="model-content"),
+    dbc.Tabs([
+        dbc.Tab([
+            dbc.Row([
+                dbc.Col(dcc.Dropdown(id="mp-asset",
+                    options=[{"label": "Gold (XAU)", "value": "XAU"},
+                             {"label": "Silver (XAG)", "value": "XAG"}],
+                    value="XAU", clearable=False), md=3),
+                dbc.Col(dcc.Dropdown(id="mp-metric",
+                    options=[{"label": m, "value": m} for m in
+                             ["directional_accuracy", "smape", "mae", "rmse",
+                              "interval_coverage", "cumulative_score"]],
+                    value="directional_accuracy", clearable=False), md=3),
+            ], className="g-2 mb-3 mt-3"),
+            dcc.Loading(dcc.Graph(id="mp-chart")),
+            html.Div(id="mp-table"),
+        ], label="📈 Performance", tab_id="perf"),
+        dbc.Tab([
+            html.P("model_id, parameters, training_cutoff, created_at are immutable after insert.",
+                   className="text-muted small mt-3"),
+            dbc.Row([
+                dbc.Col(dcc.Dropdown(id="mr-status-filter",
+                    options=[{"label": "All", "value": "all"}]
+                    + [{"label": s, "value": s} for s in
+                       ["production", "candidate", "benchmark", "retired", "failed"]],
+                    value="all", clearable=False), md=3),
+            ], className="g-2 mb-3"),
+            html.Div(id="mr-table"),
+        ], label="🗂 Registry", tab_id="registry"),
+    ], id="model-tabs", active_tab="perf", className="mb-3"),
 ])
-
-
-def _perf_controls():
-    return dbc.Row([
-        dbc.Col(dcc.Dropdown(id="mp-asset",
-            options=[{"label": "Gold (XAU)", "value": "XAU"},
-                     {"label": "Silver (XAG)", "value": "XAG"}],
-            value="XAU", clearable=False), md=3),
-        dbc.Col(dcc.Dropdown(id="mp-metric",
-            options=[{"label": m, "value": m} for m in
-                     ["directional_accuracy", "smape", "mae", "rmse",
-                      "interval_coverage", "cumulative_score"]],
-            value="directional_accuracy", clearable=False), md=3),
-    ], className="g-2 mb-3")
-
-
-def _reg_controls():
-    return dbc.Row([
-        dbc.Col(dcc.Dropdown(id="mr-status-filter",
-            options=[{"label": "All", "value": "all"}]
-            + [{"label": s, "value": s} for s in
-               ["production", "candidate", "benchmark", "retired", "failed"]],
-            value="all", clearable=False), md=3),
-    ], className="g-2 mb-3")
-
-
-@callback(Output("model-content", "children"), Input("model-tabs", "active_tab"))
-def render_tab(tab):
-    if tab == "perf":
-        return html.Div([_perf_controls(), dcc.Loading(dcc.Graph(id="mp-chart")),
-                         html.Div(id="mp-table")])
-    return html.Div([
-        html.P("model_id, parameters, training_cutoff, created_at are immutable after insert.",
-               className="text-muted small"),
-        _reg_controls(),
-        html.Div(id="mr-table"),
-    ])
 
 
 @callback(Output("mp-chart", "figure"), Output("mp-table", "children"),
           Input("model-interval", "n_intervals"), Input("mp-asset", "value"),
-          Input("mp-metric", "value"), Input("model-tabs", "active_tab"))
-def perf_refresh(_n, asset, metric, tab):
-    if tab != "perf":
-        return dash.no_update, dash.no_update
+          Input("mp-metric", "value"))
+def perf_refresh(_n, asset, metric):
     try:
         with sqlite3.connect(DB_PATH) as conn:
             df = pd.read_sql_query(
@@ -107,11 +92,8 @@ def perf_refresh(_n, asset, metric, tab):
 
 
 @callback(Output("mr-table", "children"),
-          Input("model-interval", "n_intervals"), Input("mr-status-filter", "value"),
-          Input("model-tabs", "active_tab"))
-def reg_refresh(_n, status_filter, tab):
-    if tab != "registry":
-        return dash.no_update
+          Input("model-interval", "n_intervals"), Input("mr-status-filter", "value"))
+def reg_refresh(_n, status_filter):
     try:
         with sqlite3.connect(DB_PATH) as conn:
             q = "SELECT * FROM model_registry"

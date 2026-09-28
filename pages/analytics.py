@@ -1,4 +1,4 @@
-"""Analytics page — Currency Influence and Backtesting in tabs."""
+"""Analytics — Currency Influence and Backtesting."""
 import sqlite3
 import dash
 from dash import callback, dcc, html, Input, Output, State
@@ -19,64 +19,48 @@ _futures = MetalsFuturesProvider()
 layout = html.Div([
     html.H4("Analytics", className="mb-3"),
     dbc.Tabs([
-        dbc.Tab(label="📊 Currency Influence", tab_id="currency"),
-        dbc.Tab(label="🔄 Backtesting", tab_id="backtest"),
+        dbc.Tab([
+            dbc.Row([
+                dbc.Col(dcc.Dropdown(id="ci-asset",
+                    options=[{"label": "Gold (XAU)", "value": "XAU"},
+                             {"label": "Silver (XAG)", "value": "XAG"}],
+                    value="XAU", clearable=False), md=3),
+                dbc.Col(dcc.Dropdown(id="ci-window",
+                    options=[{"label": f"{h}h", "value": h} for h in [24, 48, 168, 720]],
+                    value=168, clearable=False), md=2),
+            ], className="g-2 mb-3 mt-3"),
+            dcc.Loading(dcc.Graph(id="ci-heatmap")),
+            html.P("Pearson correlation between metal futures price and FX pairs.",
+                   className="text-muted small mt-2"),
+        ], label="📊 Currency Influence", tab_id="currency"),
+        dbc.Tab([
+            html.P("Walk-forward only. No random splits. No future leakage.",
+                   className="text-muted small mt-3"),
+            dbc.Row([
+                dbc.Col(dcc.Dropdown(id="bt-asset",
+                    options=[{"label": "Gold (XAU)", "value": "XAU"},
+                             {"label": "Silver (XAG)", "value": "XAG"}],
+                    value="XAU", clearable=False), md=3),
+                dbc.Col(dcc.Input(id="bt-windows", type="number", value=10,
+                                  className="form-control form-control-sm"), md=2),
+                dbc.Col(dcc.Input(id="bt-step", type="number", value=24,
+                                  className="form-control form-control-sm"), md=2),
+                dbc.Col(dbc.Button("Run Walk-Forward", id="bt-run-btn",
+                                   color="warning", size="sm"), md=3),
+            ], className="g-2 mb-2"),
+            dcc.Loading(html.Div(id="bt-run-result", className="text-muted small mb-3")),
+            dcc.Dropdown(id="bt-run-select", placeholder="Select run", clearable=False,
+                         style={"maxWidth": "420px", "marginBottom": "12px"}),
+            dcc.Loading(dcc.Graph(id="bt-chart")),
+            html.Div(id="bt-window-table"),
+        ], label="🔄 Backtesting", tab_id="backtest"),
     ], id="an-tabs", active_tab="currency", className="mb-3"),
-    html.Div(id="an-content"),
 ])
 
 
-def _currency_tab():
-    return html.Div([
-        dbc.Row([
-            dbc.Col(dcc.Dropdown(id="ci-asset",
-                options=[{"label": "Gold (XAU)", "value": "XAU"},
-                         {"label": "Silver (XAG)", "value": "XAG"}],
-                value="XAU", clearable=False), md=3),
-            dbc.Col(dcc.Dropdown(id="ci-window",
-                options=[{"label": f"{h}h", "value": h} for h in [24, 48, 168, 720]],
-                value=168, clearable=False), md=2),
-        ], className="g-2 mb-3"),
-        dcc.Loading(dcc.Graph(id="ci-heatmap")),
-        html.P("Pearson correlation between metal futures price and FX pairs.",
-               className="text-muted small mt-2"),
-    ])
-
-
-def _backtest_tab():
-    return html.Div([
-        html.P("Walk-forward only. No random splits. No future leakage.", className="text-muted small"),
-        dbc.Row([
-            dbc.Col(dcc.Dropdown(id="bt-asset",
-                options=[{"label": "Gold (XAU)", "value": "XAU"},
-                         {"label": "Silver (XAG)", "value": "XAG"}],
-                value="XAU", clearable=False), md=3),
-            dbc.Col(dcc.Input(id="bt-windows", type="number", value=10,
-                              className="form-control form-control-sm"), md=2),
-            dbc.Col(dcc.Input(id="bt-step", type="number", value=24,
-                              className="form-control form-control-sm"), md=2),
-            dbc.Col(dbc.Button("Run Walk-Forward", id="bt-run-btn",
-                               color="warning", size="sm"), md=3),
-        ], className="g-2 mb-2"),
-        dcc.Loading(html.Div(id="bt-run-result", className="text-muted small mb-3")),
-        dcc.Dropdown(id="bt-run-select", placeholder="Select run", clearable=False,
-                     style={"maxWidth": "420px", "marginBottom": "12px"}),
-        dcc.Loading(dcc.Graph(id="bt-chart")),
-        html.Div(id="bt-window-table"),
-    ])
-
-
-@callback(Output("an-content", "children"), Input("an-tabs", "active_tab"))
-def render_tab(tab):
-    return _currency_tab() if tab == "currency" else _backtest_tab()
-
-
-# ── Currency influence ────────────────────────────────────────────────────────
 @callback(Output("ci-heatmap", "figure"), Input("ci-asset", "value"),
-          Input("ci-window", "value"), Input("an-tabs", "active_tab"))
-def heatmap(asset, window, tab):
-    if tab != "currency":
-        return dash.no_update
+          Input("ci-window", "value"))
+def heatmap(asset, window):
     metal_result = _futures.fetch(asset=asset)
     if metal_result.status not in ("LIVE", "STALE") or metal_result.value is None:
         return go.Figure().update_layout(title=f"{asset} — {metal_result.status}",
@@ -89,14 +73,12 @@ def heatmap(asset, window, tab):
     if len(frames) < 2:
         return go.Figure().update_layout(title="Insufficient FX data", template="plotly_white")
     combined = pd.concat(frames, axis=1).dropna().iloc[-window:]
-    fig = px.imshow(combined.corr(), text_auto=".2f",
-                    title=f"{asset} FX Correlation | Last {window}h",
-                    color_continuous_scale="RdBu", zmin=-1, zmax=1,
-                    template="plotly_white")
-    return fig
+    return px.imshow(combined.corr(), text_auto=".2f",
+                     title=f"{asset} FX Correlation | Last {window}h",
+                     color_continuous_scale="RdBu", zmin=-1, zmax=1,
+                     template="plotly_white")
 
 
-# ── Backtesting ───────────────────────────────────────────────────────────────
 @callback(Output("bt-run-result", "children"), Output("bt-run-select", "options"),
           Input("bt-run-btn", "n_clicks"), State("bt-asset", "value"),
           State("bt-windows", "value"), State("bt-step", "value"),

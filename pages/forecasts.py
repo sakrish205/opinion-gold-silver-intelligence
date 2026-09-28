@@ -1,4 +1,4 @@
-"""Forecasts page — Run forecasts, Audit chart, Verification queue in tabs."""
+"""Forecasts — Run forecasts, Audit chart, Verification queue, Grading."""
 import sqlite3
 from datetime import datetime, timezone
 
@@ -18,100 +18,102 @@ dash.register_page(__name__, path="/forecasts", name="Forecasts")
 
 _futures = MetalsFuturesProvider()
 
-# ── Layout ────────────────────────────────────────────────────────────────────
 layout = html.Div([
     html.H4("Forecasts", className="mb-3"),
     dbc.Tabs([
-        dbc.Tab(label="▶ Run", tab_id="run"),
-        dbc.Tab(label="📈 Audit", tab_id="audit"),
-        dbc.Tab(label="✅ Verify", tab_id="verify"),
+        # ── Run tab ────────────────────────────────────────────────────────────
+        dbc.Tab([
+            html.P("5 horizons × 5 models (Naive, AutoARIMA, AutoETS, Theta, XGBoost+FX)",
+                   className="text-muted mt-3"),
+            dbc.Row([
+                dbc.Col(dcc.Dropdown(id="fc-asset",
+                    options=[{"label": "Gold (XAU)", "value": "XAU"},
+                             {"label": "Silver (XAG)", "value": "XAG"}],
+                    value="XAU", clearable=False), md=3),
+                dbc.Col(dcc.Dropdown(id="fc-currency",
+                    options=[{"label": c, "value": c} for c in ["INR", "USD"]],
+                    value="INR", clearable=False), md=2),
+                dbc.Col(dbc.Button("▶ Run Forecasts", id="fc-run-btn",
+                                   color="warning"), md=3),
+            ], className="mb-3 g-2"),
+            dcc.Loading(html.Div(id="fc-output")),
+            html.Div(id="fc-status", className="text-muted small mt-2"),
+        ], label="▶ Run", tab_id="run"),
+
+        # ── Grade tab ──────────────────────────────────────────────────────────
+        dbc.Tab([
+            html.P(
+                "Grades elapsed forecasts against actual FUTURES prices (yfinance). "
+                "+3 direction correct | −6 incorrect. LLM excluded from scoring.",
+                className="text-muted mt-3",
+            ),
+            dbc.Row([
+                dbc.Col(dbc.Button("⚡ Grade Pending", id="fc-grade-btn",
+                                   color="primary"), md=3),
+            ], className="mb-3"),
+            dcc.Loading(html.Div(id="fc-grade-result")),
+            html.Hr(),
+            html.H6("Recent Outcomes"),
+            dcc.Interval(id="fc-grade-interval", interval=60_000, n_intervals=0),
+            html.Div(id="fc-grade-table"),
+        ], label="🏆 Grade", tab_id="grade"),
+
+        # ── Audit tab ──────────────────────────────────────────────────────────
+        dbc.Tab([
+            html.P("Historical predictions vs observed outcomes (immutable forecast_history).",
+                   className="text-muted mt-3"),
+            dbc.Row([
+                dbc.Col(dcc.Dropdown(id="fva-asset",
+                    options=[{"label": "Gold (XAU)", "value": "XAU"},
+                             {"label": "Silver (XAG)", "value": "XAG"}],
+                    value="XAU", clearable=False), md=3),
+                dbc.Col(dcc.Dropdown(id="fva-horizon",
+                    options=[{"label": h.label, "value": h.code} for h in HORIZONS],
+                    value=HORIZONS[0].code, clearable=False), md=3),
+                dbc.Col(dcc.Dropdown(id="fva-model",
+                    options=[{"label": m, "value": m} for m in
+                             ["sf_naive", "sf_autoarima", "sf_autoets", "sf_theta", "xgboost_fx"]],
+                    value="sf_autoarima", clearable=False), md=3),
+            ], className="mb-3 g-2"),
+            dcc.Loading(dcc.Graph(id="fva-chart", style={"height": "480px"})),
+        ], label="📈 Audit", tab_id="audit"),
+
+        # ── Verify tab ─────────────────────────────────────────────────────────
+        dbc.Tab([
+            dcc.Interval(id="fv-interval", interval=60_000, n_intervals=0),
+            dbc.Tabs([
+                dbc.Tab(html.Div(id="fv-pending"), label="Pending", tab_id="pending"),
+                dbc.Tab(html.Div(id="fv-verified"), label="Verified", tab_id="verified"),
+                dbc.Tab(html.Div(id="fv-disputed"), label="Disputed", tab_id="disputed"),
+            ], id="fv-sub-tabs", active_tab="pending", className="mb-3 mt-3"),
+            html.Hr(),
+            html.H6("Human Review"),
+            dbc.Row([
+                dbc.Col(dcc.Input(id="fv-fc-id", placeholder="forecast_id",
+                                  className="form-control form-control-sm"), md=4),
+                dbc.Col(dcc.Dropdown(id="fv-status",
+                    options=[{"label": s, "value": s} for s in
+                             ["VERIFIED", "DISPUTED", "NEEDS_REVIEW"]],
+                    placeholder="Status", clearable=False), md=3),
+                dbc.Col(dcc.Input(id="fv-note", placeholder="Note",
+                                  className="form-control form-control-sm"), md=3),
+                dbc.Col(dbc.Button("Submit", id="fv-submit-btn",
+                                   color="warning", size="sm"), md=1),
+            ], className="g-2"),
+            html.Div(id="fv-submit-result", className="text-muted small mt-2"),
+        ], label="✅ Verify", tab_id="verify"),
     ], id="fc-tabs", active_tab="run", className="mb-3"),
-    html.Div(id="fc-tab-content"),
 ])
 
 
-# ── Tab content ───────────────────────────────────────────────────────────────
-def _run_tab():
-    return html.Div([
-        html.P("5 horizons × 5 models (Naive, AutoARIMA, AutoETS, Theta, XGBoost+FX)",
-               className="text-muted"),
-        dbc.Row([
-            dbc.Col(dcc.Dropdown(id="fc-asset",
-                options=[{"label": "Gold (XAU)", "value": "XAU"},
-                         {"label": "Silver (XAG)", "value": "XAG"}],
-                value="XAU", clearable=False), md=3),
-            dbc.Col(dcc.Dropdown(id="fc-currency",
-                options=[{"label": c, "value": c} for c in ["INR", "USD"]],
-                value="INR", clearable=False), md=2),
-            dbc.Col(dbc.Button("Run Forecasts", id="fc-run-btn", color="warning"), md=3),
-        ], className="mb-3 g-2"),
-        dcc.Loading(html.Div(id="fc-output")),
-        html.Div(id="fc-status", className="text-muted small mt-2"),
-    ])
-
-
-def _audit_tab():
-    return html.Div([
-        html.P("Historical predictions vs observed outcomes (read from immutable forecast_history).",
-               className="text-muted"),
-        dbc.Row([
-            dbc.Col(dcc.Dropdown(id="fva-asset",
-                options=[{"label": "Gold (XAU)", "value": "XAU"},
-                         {"label": "Silver (XAG)", "value": "XAG"}],
-                value="XAU", clearable=False), md=3),
-            dbc.Col(dcc.Dropdown(id="fva-horizon",
-                options=[{"label": h.label, "value": h.code} for h in HORIZONS],
-                value=HORIZONS[0].code, clearable=False), md=3),
-            dbc.Col(dcc.Dropdown(id="fva-model",
-                options=[{"label": m, "value": m} for m in
-                         ["sf_naive", "sf_autoarima", "sf_autoets", "sf_theta", "xgboost_fx"]],
-                value="sf_autoarima", clearable=False), md=3),
-        ], className="mb-3 g-2"),
-        dcc.Loading(dcc.Graph(id="fva-chart", style={"height": "480px"})),
-    ])
-
-
-def _verify_tab():
-    return html.Div([
-        dcc.Interval(id="fv-interval", interval=60_000, n_intervals=0),
-        dbc.Tabs([
-            dbc.Tab(html.Div(id="fv-pending"), label="Pending", tab_id="pending"),
-            dbc.Tab(html.Div(id="fv-verified"), label="Verified", tab_id="verified"),
-            dbc.Tab(html.Div(id="fv-disputed"), label="Disputed", tab_id="disputed"),
-        ], id="fv-sub-tabs", active_tab="pending", className="mb-3"),
-        html.Hr(),
-        html.H6("Human Review", className="mt-2"),
-        dbc.Row([
-            dbc.Col(dcc.Input(id="fv-fc-id", placeholder="forecast_id",
-                              className="form-control form-control-sm"), md=4),
-            dbc.Col(dcc.Dropdown(id="fv-status",
-                options=[{"label": s, "value": s} for s in
-                         ["VERIFIED", "DISPUTED", "NEEDS_REVIEW"]],
-                placeholder="Status", clearable=False), md=3),
-            dbc.Col(dcc.Input(id="fv-note", placeholder="Note",
-                              className="form-control form-control-sm"), md=3),
-            dbc.Col(dbc.Button("Submit", id="fv-submit-btn", color="warning",
-                               size="sm"), md=1),
-        ], className="g-2"),
-        html.Div(id="fv-submit-result", className="text-muted small mt-2"),
-    ])
-
-
-@callback(Output("fc-tab-content", "children"), Input("fc-tabs", "active_tab"))
-def render_tab(tab):
-    return {"run": _run_tab, "audit": _audit_tab, "verify": _verify_tab}[tab]()
-
-
-# ── Run Forecasts callbacks ───────────────────────────────────────────────────
+# ── Run Forecasts ─────────────────────────────────────────────────────────────
 @callback(
-    Output("fc-output", "children"),
-    Output("fc-status", "children"),
+    Output("fc-output", "children"), Output("fc-status", "children"),
     Input("fc-run-btn", "n_clicks"),
-    State("fc-asset", "value"),
-    State("fc-currency", "value"),
+    State("fc-asset", "value"), State("fc-currency", "value"),
     prevent_initial_call=True,
 )
-def run_forecasts(n_clicks, asset, currency):
+def run_forecasts(_n, asset, currency):
     from models.forecaster import run_forecast
     result = _futures.fetch(asset=asset)
     if result.status not in ("LIVE", "STALE") or result.value is None:
@@ -157,10 +159,8 @@ def run_forecasts(n_clicks, asset, currency):
         h = rec["horizon_code"]
         rows_by_horizon.setdefault(h, [])
         p = rec.get("predicted_price")
-        if currency == "INR" and usd_inr and p:
-            p_fmt = f"₹{p * usd_inr:,.2f} (DERIVED)"
-        else:
-            p_fmt = f"{p:,.4f}" if p else "—"
+        p_fmt = (f"₹{p * usd_inr:,.2f} (DERIVED)" if currency == "INR" and usd_inr and p
+                 else f"{p:,.4f}" if p else "—")
         dir_badge = dbc.Badge(
             rec.get("predicted_direction", "—"),
             color={"UP": "success", "DOWN": "danger", "FLAT": "secondary"}.get(
@@ -172,23 +172,93 @@ def run_forecasts(n_clicks, asset, currency):
 
     tabs = [dbc.Tab(
         dbc.Table(
-            [html.Thead(html.Tr([html.Th("Model"), html.Th(f"Predicted ({currency})"), html.Th("Direction")]))]
+            [html.Thead(html.Tr([html.Th("Model"), html.Th(f"Predicted ({currency})"),
+                                 html.Th("Direction")]))]
             + [html.Tbody(rows_by_horizon.get(h.code, []))],
             bordered=True, size="sm", hover=True,
         ), label=h.label, tab_id=h.code,
     ) for h in HORIZONS if h.code in rows_by_horizon]
 
     out = dbc.Tabs(tabs, active_tab=HORIZONS[0].code) if tabs else html.P("No forecasts.")
-    status = f"{len(records)} forecasts for {asset} | snapshot {snap_id} | {datetime.now(timezone.utc).strftime('%H:%M')} UTC"
+    status = (f"{len(records)} forecasts | snapshot {snap_id} | "
+              f"{datetime.now(timezone.utc).strftime('%H:%M')} UTC")
     return out, status
 
 
-# ── Audit chart callback ──────────────────────────────────────────────────────
+# ── Grade ─────────────────────────────────────────────────────────────────────
+@callback(
+    Output("fc-grade-result", "children"),
+    Input("fc-grade-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def grade_pending(_n):
+    from models.grader import grade_pending as _grade
+    outcomes = _grade()
+    if not outcomes:
+        return dbc.Alert("No pending forecasts to grade (or actual prices unavailable).",
+                         color="info")
+    correct = sum(1 for o in outcomes if o["direction_correct"])
+    total = len(outcomes)
+    net = sum(o["score"] for o in outcomes)
+    return dbc.Alert(
+        f"Graded {total} forecast(s): {correct}/{total} correct | "
+        f"net score {net:+d} | "
+        f"+3/−6 from FUTURES prices only",
+        color="success" if net >= 0 else "warning",
+    )
+
+
+@callback(Output("fc-grade-table", "children"), Input("fc-grade-interval", "n_intervals"),
+          Input("fc-grade-btn", "n_clicks"))
+def grade_table(_n, _b):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            df = pd.read_sql_query(
+                """SELECT fo.forecast_id, fh.asset, fh.horizon_code, fh.model_id,
+                          fh.predicted_direction, fo.actual_direction,
+                          fo.direction_correct, fo.score, fo.percentage_error,
+                          fo.outcome_verified_at
+                   FROM forecast_outcomes fo
+                   JOIN forecast_history fh ON fh.forecast_id = fo.forecast_id
+                   ORDER BY fo.outcome_verified_at DESC LIMIT 80""",
+                conn,
+            )
+    except Exception:
+        df = pd.DataFrame()
+    if df.empty:
+        return html.P("No graded forecasts yet. Click 'Grade Pending' above.", className="text-muted")
+
+    def score_badge(s):
+        return dbc.Badge(f"{s:+d}", color="success" if s > 0 else "danger")
+    def dir_badge(d):
+        return dbc.Badge(d or "—", color={"UP": "success", "DOWN": "danger",
+                                           "FLAT": "secondary"}.get(d or "", "secondary"))
+
+    return dbc.Table(
+        [html.Thead(html.Tr([html.Th(c) for c in
+                             ["ID", "Asset", "Horizon", "Model",
+                              "Predicted", "Actual", "Correct", "Score", "Err%", "Graded At"]]))]
+        + [html.Tbody([html.Tr([
+            html.Td(str(r["forecast_id"])[:12] + "…"),
+            html.Td(r["asset"]),
+            html.Td(r["horizon_code"]),
+            html.Td(r["model_id"]),
+            html.Td(dir_badge(r["predicted_direction"])),
+            html.Td(dir_badge(r["actual_direction"])),
+            html.Td(dbc.Badge("✓", color="success") if r["direction_correct"]
+                    else dbc.Badge("✗", color="danger")),
+            html.Td(score_badge(int(r["score"] or 0))),
+            html.Td(f"{r['percentage_error']:.2f}%" if r["percentage_error"] else "—"),
+            html.Td(str(r["outcome_verified_at"] or "")[:16]),
+        ]) for _, r in df.iterrows()])],
+        bordered=True, size="sm", responsive=True, hover=True,
+    )
+
+
+# ── Audit chart ───────────────────────────────────────────────────────────────
 @callback(
     Output("fva-chart", "figure"),
-    Input("fva-asset", "value"),
-    Input("fva-horizon", "value"),
-    Input("fva-model", "value"),
+    Input("fva-asset", "value"), Input("fva-horizon", "value"), Input("fva-model", "value"),
 )
 def update_audit(asset, horizon_code, model_id):
     fig = go.Figure()
@@ -237,13 +307,13 @@ def update_audit(asset, horizon_code, model_id):
         fig.add_trace(go.Scatter(x=pd.to_datetime(verified["outcome_verified_at"]),
                                  y=verified["actual_price"], mode="markers",
                                  name="Verified", marker=dict(symbol="diamond", size=10, color="#27ae60")))
-    fig.update_layout(title=f"{asset} {horizon_code} | {model_id}",
+    fig.update_layout(title=f"{asset} {horizon_code} | {model_id} | FUTURES",
                       yaxis_title="Price (USD — FUTURES)",
                       template="plotly_white", hovermode="x unified")
     return fig
 
 
-# ── Verification queue callbacks ──────────────────────────────────────────────
+# ── Verification queue ────────────────────────────────────────────────────────
 def _queue(status_filter):
     try:
         with sqlite3.connect(DB_PATH) as conn:

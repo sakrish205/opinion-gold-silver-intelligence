@@ -86,19 +86,27 @@ sidebar = html.Div(
     },
 )
 
+app.index_string = """
+<!DOCTYPE html>
+<html>
+<head>{%metas%}<title>{%title%}</title>{%favicon%}{%css%}
+<style>
+.opinion-nav-link.active {
+    background: rgba(255,255,255,0.15) !important;
+    color: #fff !important;
+    border-left: 3px solid #F39C12;
+}
+.opinion-nav-link:hover:not(.active) {
+    background: rgba(255,255,255,0.08) !important;
+    color: #fff !important;
+}
+</style>
+</head>
+<body>{%app_entry%}<footer>{%config%}{%scripts%}{%renderer%}</footer></body>
+</html>
+"""
+
 app.layout = html.Div([
-    # Global active-link styling (light indicator on dark sidebar)
-    html.Style("""
-        .opinion-nav-link.active {
-            background: rgba(255,255,255,0.15) !important;
-            color: #fff !important;
-            border-left: 3px solid #F39C12;
-        }
-        .opinion-nav-link:hover:not(.active) {
-            background: rgba(255,255,255,0.08) !important;
-            color: #fff !important;
-        }
-    """),
     dbc.Row([
         dbc.Col(sidebar, width=2, className="p-0"),
         dbc.Col([
