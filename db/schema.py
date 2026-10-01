@@ -250,6 +250,42 @@ CREATE TABLE IF NOT EXISTS data_quality_alerts (
     resolved INTEGER NOT NULL DEFAULT 0,
     resolved_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS raw_market_data (
+    id INTEGER PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    data_type TEXT NOT NULL,
+    interval TEXT NOT NULL,
+    timestamp_utc TEXT NOT NULL,
+    open REAL,
+    high REAL,
+    low REAL,
+    close REAL NOT NULL,
+    volume REAL,
+    source TEXT NOT NULL,
+    ingested_at TEXT NOT NULL,
+    UNIQUE (symbol, timestamp_utc, interval)
+);
+
+CREATE INDEX IF NOT EXISTS idx_raw_symbol_ts ON raw_market_data (symbol, timestamp_utc);
+
+CREATE TABLE IF NOT EXISTS ingestion_log (
+    id INTEGER PRIMARY KEY,
+    ingested_at TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    interval TEXT NOT NULL,
+    source TEXT NOT NULL,
+    first_timestamp TEXT,
+    last_timestamp TEXT,
+    rows_received INTEGER NOT NULL DEFAULT 0,
+    rows_stored INTEGER NOT NULL DEFAULT 0,
+    rows_duplicate INTEGER NOT NULL DEFAULT 0,
+    rows_invalid INTEGER NOT NULL DEFAULT 0,
+    validation_status TEXT NOT NULL,
+    error_message TEXT
+);
 """
 
 
