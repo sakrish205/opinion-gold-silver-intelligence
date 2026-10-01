@@ -1,5 +1,5 @@
 """
-Create all 13 OPINION SQLite tables.
+Create all 14 OPINION SQLite tables.
 Run once on first start; safe to re-run (CREATE TABLE IF NOT EXISTS).
 """
 import sqlite3
@@ -269,6 +269,18 @@ CREATE TABLE IF NOT EXISTS raw_market_data (
 );
 
 CREATE INDEX IF NOT EXISTS idx_raw_symbol_ts ON raw_market_data (symbol, timestamp_utc);
+
+CREATE TABLE IF NOT EXISTS finbert_cache (
+    id INTEGER PRIMARY KEY,
+    content_hash TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    positive_prob REAL NOT NULL,
+    negative_prob REAL NOT NULL,
+    neutral_prob REAL NOT NULL,
+    cached_at TEXT NOT NULL,
+    UNIQUE (content_hash, model_name, model_version)
+);
 
 CREATE TABLE IF NOT EXISTS ingestion_log (
     id INTEGER PRIMARY KEY,
