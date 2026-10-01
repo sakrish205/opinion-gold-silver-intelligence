@@ -1,5 +1,5 @@
 """
-Create all 11 OPINION SQLite tables.
+Create all 13 OPINION SQLite tables.
 Run once on first start; safe to re-run (CREATE TABLE IF NOT EXISTS).
 """
 import sqlite3

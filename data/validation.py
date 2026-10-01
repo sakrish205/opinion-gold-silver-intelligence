@@ -20,7 +20,8 @@ class ValidationResult:
     rows_valid: int = 0
     rows_invalid: int = 0
     duplicate_timestamps: int = 0
-    missing_value_rows: int = 0
+    missing_close: int = 0           # rows where close is NaN — excluded from storage
+    missing_other_ohlc: int = 0      # rows where open/high/low is NaN but close is present — retained
     invalid_ohlc_rows: int = 0
     negative_price_rows: int = 0
     large_gap_count: int = 0
@@ -68,16 +69,28 @@ def validate_ohlcv(
         return pd.DataFrame(), result
 
     # 3. Missing close values
-    missing_close = df["close"].isna()
-    result.missing_value_rows = int(missing_close.sum())
-    if result.missing_value_rows:
-        result.issues.append(f"{result.missing_value_rows} rows with missing close value")
+    missing_close_mask = df["close"].isna()
+    result.missing_close = int(missing_close_mask.sum())
+    if result.missing_close:
+        result.issues.append(f"{result.missing_close} rows with missing close value (excluded from storage)")
 
     # 4. Non-positive close price
     negative_mask = df["close"].notna() & (df["close"] <= 0)
     result.negative_price_rows = int(negative_mask.sum())
     if result.negative_price_rows:
-        result.issues.append(f"{result.negative_price_rows} rows with non-positive close price")
+        result.issues.append(f"{result.negative_price_rows} rows with non-positive close price (excluded from storage)")
+
+    # 4b. Missing open/high/low with close present (retained — never fabricated)
+    other_ohlc = [c for c in ("open", "high", "low") if c in df.columns]
+    if other_ohlc:
+        has_close = df["close"].notna()
+        missing_ohlc_mask = has_close & df[other_ohlc].isna().any(axis=1)
+        result.missing_other_ohlc = int(missing_ohlc_mask.sum())
+        if result.missing_other_ohlc:
+            result.issues.append(
+                f"{result.missing_other_ohlc} rows with missing open/high/low "
+                "(close present; rows retained — source values not fabricated)"
+            )
 
     # 5. OHLC consistency (only when all four are present)
     if all(c in df.columns for c in ("open", "high", "low", "close")):
@@ -102,7 +115,7 @@ def validate_ohlcv(
             result.issues.append(f"{result.large_gap_count} timestamp gap(s) > 48h")
 
     # Build valid_df: exclude only rows where close is missing or non-positive
-    exclude = missing_close | negative_mask
+    exclude = missing_close_mask | negative_mask
     valid_df = df[~exclude].copy()
     result.rows_invalid = int(exclude.sum())
     result.rows_valid = len(valid_df)
@@ -120,6 +133,7 @@ def validate_ohlcv(
         result.rows_invalid > 0
         or result.duplicate_timestamps > 0
         or result.invalid_ohlc_rows > 0
+        or result.missing_other_ohlc > 0
         or result.large_gap_count > 0
     ):
         result.status = "WARNINGS"

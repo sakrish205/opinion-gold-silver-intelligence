@@ -55,7 +55,7 @@ def test_rows_with_missing_close_excluded():
     df.loc[3, "close"] = float("nan")
     df.loc[7, "close"] = float("nan")
     valid_df, result = validate_ohlcv(df, "GC=F", "yfinance", "1h")
-    assert result.missing_value_rows == 2
+    assert result.missing_close == 2
     assert result.rows_invalid == 2
     assert len(valid_df) == 8
     assert result.status == "WARNINGS"
@@ -100,6 +100,20 @@ def test_duplicate_timestamps_deduplicated():
     assert result.duplicate_timestamps == 1
     assert len(valid_df) == 10    # duplicate removed
     assert result.status == "WARNINGS"
+
+
+def test_missing_other_ohlc_row_retained():
+    """Rows where open/high/low are NaN but close is valid must be kept (never fabricated)."""
+    df = _make_df(n=10)
+    df.loc[4, "open"] = float("nan")
+    df.loc[4, "high"] = float("nan")
+    df.loc[4, "low"] = float("nan")
+    valid_df, result = validate_ohlcv(df, "USDINR=X", "yfinance", "1h")
+    assert result.missing_other_ohlc == 1
+    assert result.rows_invalid == 0    # row is retained
+    assert len(valid_df) == 10         # all 10 rows present
+    assert result.status == "WARNINGS"
+    assert any("open/high/low" in i for i in result.issues)
 
 
 def test_date_range_populated():

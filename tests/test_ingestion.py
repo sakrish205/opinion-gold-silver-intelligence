@@ -94,10 +94,9 @@ def test_get_latest_stored_ts_returns_value(db, mock_yf):
 
 
 def test_incremental_uses_start_param(db):
-    """Second call with existing data should pass `start=` to yfinance, not `period=`."""
+    """Second call with existing data must pass `start=` (not `period=`) to yfinance."""
     from data.ingestion import ingest_ohlcv
     first_df = _make_yf_df(n=50)
-    # incremental batch: 10 new rows, same first row to allow INSERT OR IGNORE
     second_df = _make_yf_df(n=10, seed=99)
     calls = []
 
@@ -109,11 +108,39 @@ def test_incremental_uses_start_param(db):
         inst = MagicMock()
         mock_cls.return_value = inst
         inst.history.side_effect = history_side_effect
-        ingest_ohlcv("GC=F", "XAU", "FUTURES", db_path=db)   # first: period=
-        ingest_ohlcv("GC=F", "XAU", "FUTURES", db_path=db)   # second: start=
+        ingest_ohlcv("GC=F", "XAU", "FUTURES", db_path=db)
+        ingest_ohlcv("GC=F", "XAU", "FUTURES", db_path=db)
 
     assert "period" in calls[0]
     assert "start" in calls[1]
+
+
+def test_incremental_start_is_datetime_not_date_string(db):
+    """
+    Incremental `start` must be a datetime object (for sub-day precision via
+    Unix timestamp), not a date string that truncates to midnight.
+    """
+    from data.ingestion import ingest_ohlcv
+    from datetime import datetime
+    first_df = _make_yf_df(n=50)
+    second_df = _make_yf_df(n=5, seed=77)
+    calls = []
+
+    def history_side_effect(**kwargs):
+        calls.append(dict(kwargs))
+        return first_df if not calls[1:] else second_df
+
+    with patch("data.ingestion.yf.Ticker") as mock_cls:
+        inst = MagicMock()
+        mock_cls.return_value = inst
+        inst.history.side_effect = history_side_effect
+        ingest_ohlcv("GC=F", "XAU", "FUTURES", db_path=db)
+        ingest_ohlcv("GC=F", "XAU", "FUTURES", db_path=db)
+
+    start_val = calls[1]["start"]
+    assert isinstance(start_val, datetime), (
+        f"Expected datetime for hourly precision, got {type(start_val).__name__}: {start_val!r}"
+    )
 
 
 def test_ingestion_log_recorded(db, mock_yf):
@@ -122,6 +149,22 @@ def test_ingestion_log_recorded(db, mock_yf):
     with sqlite3.connect(db) as conn:
         rows = conn.execute("SELECT * FROM ingestion_log WHERE symbol='GC=F'").fetchall()
     assert len(rows) == 1
+
+
+def test_provider_exception_captured_in_log(db):
+    """Provider exceptions must be captured and stored in ingestion_log.error_message."""
+    from data.ingestion import ingest_ohlcv
+    with patch("data.ingestion.yf.Ticker") as mock_cls:
+        mock_cls.side_effect = RuntimeError("connection refused")
+        result = ingest_ohlcv("GC=F", "XAU", "FUTURES", db_path=db)
+    assert result["validation_status"] == "FAILED"
+    assert result["error_message"] is not None
+    assert "RuntimeError" in result["error_message"]
+    with sqlite3.connect(db) as conn:
+        row = conn.execute(
+            "SELECT error_message FROM ingestion_log WHERE symbol='GC=F'"
+        ).fetchone()
+    assert row and row[0] and "RuntimeError" in row[0]
 
 
 def test_no_data_from_provider_logged(db):

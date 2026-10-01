@@ -8,10 +8,27 @@ Entry points:
   ingest_ohlcv(symbol, asset, data_type, ...)  — one symbol
   backfill(lookback_days, interval)             — all symbols, full history
   update_incremental(interval)                  — all symbols, only new bars
+
+─── raw_market_data vs ML-ready data ────────────────────────────────────────
+raw_market_data stores SOURCE OBSERVATIONS exactly as received from yfinance.
+No interpolation, no forward-fill, no fabrication of missing OHLC values.
+
+A future ML-usable dataset (feature-engineered, aligned, gap-handled) will
+be constructed from raw_market_data in a separate step (Prompt 4 scope).
+Keep these two concerns separate: this module only writes raw observations.
+─────────────────────────────────────────────────────────────────────────────
+
+─── yfinance `start` parameter note ─────────────────────────────────────────
+For incremental fetches, we pass a datetime object (not a date string) as
+`start` to yfinance. yfinance converts this to a Unix timestamp internally,
+which gives sub-day precision. However, Yahoo Finance's hourly data API may
+still return data starting from the containing market session rather than the
+exact requested hour. The 1-hour overlap (since - 1h) combined with
+INSERT OR IGNORE deduplication handles any boundary ambiguity.
+─────────────────────────────────────────────────────────────────────────────
 """
 from __future__ import annotations
 
-import math
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -58,18 +75,37 @@ def _nan_to_none(v):
 # ── Fetch ────────────────────────────────────────────────────────────────────
 
 
-def _fetch(symbol: str, interval: str, lookback_days: int = 730,
-           since: datetime | None = None) -> pd.DataFrame | None:
+def _fetch(
+    symbol: str,
+    interval: str,
+    lookback_days: int = 730,
+    since: datetime | None = None,
+) -> tuple[pd.DataFrame | None, str | None]:
+    """
+    Fetch OHLCV from yfinance.
+
+    Returns (df, error_message).
+    df is None when no data is available or an error occurred.
+
+    Incremental mode: passes a datetime object as `start` so yfinance converts
+    it to a Unix timestamp (sub-day precision). A 1-hour overlap is retained to
+    ensure the latest stored bar is always re-fetched; INSERT OR IGNORE handles
+    the duplicate. See module docstring for the yfinance start-precision note.
+    """
     try:
         ticker = yf.Ticker(symbol)
         if since is not None:
-            start = (since - timedelta(hours=1)).strftime("%Y-%m-%d")
-            df = ticker.history(start=start, interval=interval)
+            # Pass datetime directly — yfinance converts to Unix timestamp (hourly precision).
+            # The 1-hour step back ensures the last stored bar is included in the fetch window.
+            start_dt = since - timedelta(hours=1)
+            df = ticker.history(start=start_dt, interval=interval)
         else:
             df = ticker.history(period=f"{lookback_days}d", interval=interval)
-        return df if (df is not None and not df.empty) else None
-    except Exception:
-        return None
+        if df is None or df.empty:
+            return None, None
+        return df, None
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {str(exc)[:300]}"
 
 
 # ── Normalise ────────────────────────────────────────────────────────────────
@@ -186,7 +222,7 @@ def ingest_ohlcv(
     now = datetime.now(timezone.utc).isoformat()
     latest_ts = get_latest_stored_ts(symbol, interval, db_path=db_path)
 
-    raw_df = _fetch(symbol, interval, lookback_days=lookback_days, since=latest_ts)
+    raw_df, fetch_error = _fetch(symbol, interval, lookback_days=lookback_days, since=latest_ts)
 
     if raw_df is None:
         summary = {
@@ -195,7 +231,7 @@ def ingest_ohlcv(
             "first_timestamp": None, "last_timestamp": None,
             "rows_received": 0, "rows_stored": 0, "rows_duplicate": 0,
             "rows_invalid": 0, "validation_status": "FAILED",
-            "error_message": "No data from provider",
+            "error_message": fetch_error or "No data from provider",
         }
         _log(summary, db_path=db_path)
         return summary
