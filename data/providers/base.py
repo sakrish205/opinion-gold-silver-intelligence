@@ -1,8 +1,7 @@
-"""DataProvider ABC, DataResult, ProviderChain."""
+"""DataProvider ABC and DataResult."""
 from __future__ import annotations
 
 import sqlite3
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -68,48 +67,6 @@ class DataProvider(ABC):
             error=error,
         )
 
-
-class ProviderChain:
-    """Try providers in order; return first LIVE or STALE result.
-    Falls through to UNAVAILABLE if all fail."""
-
-    def __init__(self, providers: list[DataProvider], data_type: DataType) -> None:
-        self.providers = providers
-        self.data_type = data_type
-
-    def fetch(self, **kwargs) -> DataResult:
-        last_error = None
-        for provider in self.providers:
-            t0 = time.monotonic()
-            try:
-                result = provider.fetch(**kwargs)
-            except Exception as exc:
-                latency_ms = int((time.monotonic() - t0) * 1000)
-                result = DataResult(
-                    value=None,
-                    status="ERROR",
-                    data_type=self.data_type,
-                    source=provider.spec.name,
-                    fetched_at=datetime.now(timezone.utc).isoformat(),
-                    latency_ms=latency_ms,
-                    error=str(exc),
-                )
-                last_error = str(exc)
-
-            _log_result(result, provider.spec.endpoint)
-
-            if result.status in ("LIVE", "STALE"):
-                return result
-
-        return DataResult(
-            value=None,
-            status="UNAVAILABLE",
-            data_type=self.data_type,
-            source="chain_exhausted",
-            fetched_at=datetime.now(timezone.utc).isoformat(),
-            latency_ms=0,
-            error=last_error,
-        )
 
 
 def _log_result(result: DataResult, endpoint: str) -> None:
